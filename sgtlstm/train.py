@@ -12,7 +12,7 @@ from sgtlstm.TimeLSTM import TimeLSTM0, TimeLSTM1, TimeLSTM2, TimeLSTM3
 tf.keras.backend.set_floatx('float64')
 
 
-def generate_one_seq(generator, T, event_vocab_dim, end_token=0, max_time=1024, verbose=False):
+def generate_one_sequence_by_rollout(generator, T, event_vocab_dim, end_token=0, max_time=1024, verbose=False):
     # noise to trigger generator
     dummy_init_state_et = np.zeros([T])
     dummy_init_state_et[0] = np.random.uniform(0, event_vocab_dim)
@@ -94,7 +94,8 @@ def generate_one_seq(generator, T, event_vocab_dim, end_token=0, max_time=1024, 
 
 def train_generator(generator, discriminator, verbose=False, weight_gaussian_loss=1, optimizer=Adam(lr=0.001)):
     with tf.GradientTape() as tape:
-        states_et, states_ts, episode_token_probs, gaussian_log = generate_one_seq(generator, verbose=verbose)
+        states_et, states_ts, episode_token_probs, gaussian_log = generate_one_sequence_by_rollout(generator,
+                                                                                                   verbose=verbose)
         actual_length = episode_token_probs.shape[0]
 
         gaussian_log = gaussian_log[0, 0:actual_length, 0]
@@ -127,7 +128,8 @@ def train_discriminator(features_batch, generator, discriminator, verbose=False,
         generated_et = tf.zeros([1, T, 1], dtype=tf.float64)
         generated_ts = tf.zeros([1, T, 1], dtype=tf.float64)
         for i in range(batch_size):
-            states_et, states_ts, episode_token_probs, gaussian_log = generate_one_seq(generator, verbose)
+            states_et, states_ts, episode_token_probs, gaussian_log = generate_one_sequence_by_rollout(generator,
+                                                                                                       verbose)
             generated_et = tf.concat([generated_et, states_et[-1:, :, :]], axis=0)
             generated_ts = tf.concat([generated_ts, states_ts[-1:, :, :]], axis=0)
         generated_et = generated_et[1:, :, :]

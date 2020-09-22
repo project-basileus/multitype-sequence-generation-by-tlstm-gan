@@ -13,38 +13,39 @@ def load_fixed_length_sequence_from_pickle(pickle_file_path, to_timedelta=True):
     """
     with open(pickle_file_path, 'rb') as f:
         raw_seqs = pickle.load(f)
-        if not raw_seqs or not raw_seqs[0]:
-            return np.array([])
 
-        N = len(raw_seqs)
-        T = len(raw_seqs[0])
+    if not raw_seqs or not raw_seqs[0]:
+        return np.array([])
 
-        event_type_seqs = []
-        timestamp_seqs = []
+    N = len(raw_seqs)
+    T = len(raw_seqs[0])
 
-        if to_timedelta:
-            for seq in raw_seqs:
-                _ets, _dts = [], []
-                ts_prev = 0
-                for et, ts in seq:
-                    _ets.append(et)  # 0 is for padding, standing for 'N/A'
-                    _dts.append(ts - ts_prev)
-                    ts_prev = ts
-                event_type_seqs.append(_ets)
-                timestamp_seqs.append(_dts)
-        else:
-            for seq in raw_seqs:
-                _ets, _ts = [], []
-                for et, ts in seq:
-                    _ets.append(et)  # 0 is for padding, standing for 'N/A'
-                    _ts.append(ts)
-                event_type_seqs.append(_ets)
-                timestamp_seqs.append(_ts)
+    event_type_seqs = []
+    timestamp_seqs = []
 
-        event_type_seqs = np.array(event_type_seqs).astype(np.float64).reshape((N, T, 1))
-        timestamp_seqs = np.array(timestamp_seqs).astype(np.float64).reshape((N, T, 1))
+    if to_timedelta:
+        for seq in raw_seqs:
+            _ets, _dts = [], []
+            ts_prev = 0
+            for et, ts in seq:
+                _ets.append(et)  # 0 is for padding, standing for 'N/A'
+                _dts.append(ts - ts_prev)
+                ts_prev = ts
+            event_type_seqs.append(_ets)
+            timestamp_seqs.append(_dts)
+    else:
+        for seq in raw_seqs:
+            _ets, _ts = [], []
+            for et, ts in seq:
+                _ets.append(et)  # 0 is for padding, standing for 'N/A'
+                _ts.append(ts)
+            event_type_seqs.append(_ets)
+            timestamp_seqs.append(_ts)
 
-        return event_type_seqs, timestamp_seqs
+    event_type_seqs = np.array(event_type_seqs).astype(np.float64).reshape((N, T, 1))
+    timestamp_seqs = np.array(timestamp_seqs).astype(np.float64).reshape((N, T, 1))
+
+    return event_type_seqs, timestamp_seqs
 
 
 def create_dataset(features: np.array, labels: np.array, batch_size=2, epochs=10, buffer_size=10000):
