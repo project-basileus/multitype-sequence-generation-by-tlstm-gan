@@ -5,28 +5,21 @@ from tensorflow.keras import Sequential
 from tensorflow.keras.optimizers import Adam, SGD
 from tensorflow.keras.layers import Input, LSTM, Embedding, Reshape, Dense
 import tensorflow_probability as tfp
-import tensorflow_probability as tfd
+from tensorflow_probability import distributions as tfd
 
 from sgtlstm.TimeLSTM import TimeLSTM0, TimeLSTM1, TimeLSTM2, TimeLSTM3
 
 tf.keras.backend.set_floatx('float64')
 
 
-def generate_one_sequence_by_rollout(generator, T, event_vocab_dim, end_token=0, max_time=1024, verbose=False):
-    # noise to trigger generator
-    dummy_init_state_et = np.zeros([T])
-    dummy_init_state_et[0] = np.random.uniform(0, event_vocab_dim)
-    dummy_init_state_et = dummy_init_state_et.reshape((1, T, 1))
-
-    dummy_init_state_ts = np.zeros([T])
-    dummy_init_state_ts[0] = np.random.uniform(0, max_time)
-    dummy_init_state_ts = dummy_init_state_ts.reshape((1, T, 1))
-
-    # placeholder of the data to be generated
+def generate_one_sequence_by_rollout(generator, T, event_vocab_dim, end_token=0, init_token=1, max_time=1024, verbose=False):
+    # Begin from dummy init state (init_token=1, init_timestamp=0.0)
     curr_state_et = np.zeros([T])
+    curr_state_et[0] = init_token
     curr_state_et = curr_state_et.reshape((1, T, 1))
 
     curr_state_ts = np.zeros([T])
+    curr_state_ts[0] = 0.0
     curr_state_ts = curr_state_ts.reshape((1, T, 1))
 
     # whole trajectory
@@ -34,12 +27,8 @@ def generate_one_sequence_by_rollout(generator, T, event_vocab_dim, end_token=0,
     states_ts = (curr_state_ts)
     episode_token_probs = tf.constant([1., ], dtype=tf.float64)
 
-    for step in range(0, T):  # sequence length
-        # initial noise
-        if step == 0:
-            token_prob, gaussian_log, mask, alpha, mu, sigma = generator([dummy_init_state_et, dummy_init_state_ts])
-        else:
-            token_prob, gaussian_log, mask, alpha, mu, sigma = generator([curr_state_et, curr_state_ts])
+    for step in range(1, T):  # sequence length
+        token_prob, gaussian_log, mask, alpha, mu, sigma = generator([curr_state_et, curr_state_ts])
 
         # generate one timstamp using [alpha, mu, sigma]
         gm = tfd.MixtureSameFamily(
@@ -92,9 +81,11 @@ def generate_one_sequence_by_rollout(generator, T, event_vocab_dim, end_token=0,
     return states_et, states_ts, episode_token_probs, gaussian_log
 
 
-def train_generator(generator, discriminator, verbose=False, weight_gaussian_loss=1, optimizer=Adam(lr=0.001)):
+def train_generator(generator, discriminator, T, event_vocab_dim, verbose=False, weight_gaussian_loss=1,
+                    optimizer=Adam(lr=0.001)):
     with tf.GradientTape() as tape:
         states_et, states_ts, episode_token_probs, gaussian_log = generate_one_sequence_by_rollout(generator,
+                                                                                                   T, event_vocab_dim,
                                                                                                    verbose=verbose)
         actual_length = episode_token_probs.shape[0]
 
@@ -115,10 +106,11 @@ def train_generator(generator, discriminator, verbose=False, weight_gaussian_los
     return token_loss, gaussian_loss
 
 
-def train_discriminator(features_batch, generator, discriminator, verbose=False, weight_gaussian_loss=1,
+def train_discriminator(features_batch, generator, discriminator, T, event_vocab_dim, verbose=False,
+                        weight_gaussian_loss=1,
                         optimizer=Adam(lr=0.001)):
     # feature_batch = (event_type, timestamp)
-    batch_size, T, _ = features_batch[0]
+    batch_size = features_batch[0].shape[0]
 
     # train the discriminator
     with tf.GradientTape() as tape:
@@ -129,7 +121,9 @@ def train_discriminator(features_batch, generator, discriminator, verbose=False,
         generated_ts = tf.zeros([1, T, 1], dtype=tf.float64)
         for i in range(batch_size):
             states_et, states_ts, episode_token_probs, gaussian_log = generate_one_sequence_by_rollout(generator,
-                                                                                                       verbose)
+                                                                                                       T,
+                                                                                                       event_vocab_dim,
+                                                                                                       verbose=verbose)
             generated_et = tf.concat([generated_et, states_et[-1:, :, :]], axis=0)
             generated_ts = tf.concat([generated_ts, states_ts[-1:, :, :]], axis=0)
         generated_et = generated_et[1:, :, :]

@@ -87,7 +87,7 @@ def pretrain_generator(feature_sample, generator, event_vocab_dim, verbose=False
     with tf.GradientTape() as tape:
         for i in range(N_reg):
             curr_state_et = self_regression_et[[i], :, :]
-            curr_state_ts = self_regression_et[[i], :, :]
+            curr_state_ts = self_regression_ts[[i], :, :]
 
             curr_target_token = int(self_target_token[i].item())
             curr_target_token_prob = np.zeros((event_vocab_dim,))
