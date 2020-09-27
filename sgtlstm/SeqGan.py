@@ -99,6 +99,11 @@ def build_G(T, event_vocab_dim, emb_dim, hidden_dim=11, k_mixt=7, return_sequenc
     mu = Dense(k_mixt, activation=None, name='dense_mu')(tm)
     sigma = Dense(k_mixt, activation=tf.nn.softplus, name='dense_sigma')(tm)
 
+    # add regularization to sigma to avoid GM collapse
+    sigma = tf.clip_by_value(sigma, clip_value_min=1.0, clip_value_max=1024)
+    # tf.print(sigma)
+    print('sigma > 1 !!')
+
     gm = tfd.MixtureSameFamily(
         mixture_distribution=tfd.Categorical(
             probs=alpha),
