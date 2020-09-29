@@ -39,7 +39,8 @@ def generate_one_sequence_by_rollout(generator, T, event_vocab_dim, end_token=0,
                 scale=sigma))
 
         # sample next event token and time stamp
-        sampled_et = tf.random.categorical(token_prob, num_samples=1)
+        assert token_prob.shape == [1, event_vocab_dim]
+        sampled_et = tf.random.categorical(tf.math.log(token_prob), num_samples=1)
         sampled_ts = tf.clip_by_value(gm.sample(), clip_value_min=1, clip_value_max=max_time)  # shape=[BATCH_SIZE,]
 
         taken_action_idx = sampled_et.numpy().item()
@@ -156,3 +157,4 @@ def train_discriminator(features_batch, generator, discriminator, T, event_vocab
     optimizer.apply_gradients(zip(grads, discriminator.trainable_variables))
 
     return ce_loss, gaussian_loss
+
