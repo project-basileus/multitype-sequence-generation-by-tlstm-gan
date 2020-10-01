@@ -32,8 +32,8 @@ def build_D(T, event_vocab_dim, emb_dim, hidden_dim=11, k_mixt=7):
     embed0 = Reshape((T, emb_dim))(embed0)  # shape=[Batch_size, T, emb_dim]
     merged0 = tf.keras.layers.concatenate([embed0, masked_ts], axis=2)  # # shape=[Batch_size, T, emb_dim + time_dim]
 
-    merged0 = tf.keras.layers.LayerNormalization()(merged0)
-    merged0 = tf.keras.layers.PReLU()(merged0)
+    # merged0 = tf.keras.layers.LayerNormalization()(merged0)
+    # merged0 = tf.keras.layers.PReLU()(merged0)
 
     hm, tm = TimeLSTM1(hidden_dim, activation='selu', name='time_lstm', return_sequences=False)(merged0)
 
@@ -87,10 +87,10 @@ def build_G(T, event_vocab_dim, emb_dim, hidden_dim=11, k_mixt=7, return_sequenc
     embed0 = Reshape((T, emb_dim))(embed0)
     merged0 = tf.keras.layers.concatenate([embed0, masked_ts], axis=2)
 
-    # TODO: add deep layers to lstm
-    # TODO: add activation after layer norm/batch norm
-    merged0 = tf.keras.layers.LayerNormalization()(merged0)
-    merged0 = tf.keras.layers.PReLU()(merged0)
+    # # TODO: add deep layers to lstm
+    # # TODO: add activation after layer norm/batch norm
+    # merged0 = tf.keras.layers.LayerNormalization()(merged0)
+    # merged0 = tf.keras.layers.PReLU()(merged0)
 
     hm, tm = TimeLSTM1(hidden_dim, activation='selu', name='time_lstm', return_sequences=False)(merged0)
 
