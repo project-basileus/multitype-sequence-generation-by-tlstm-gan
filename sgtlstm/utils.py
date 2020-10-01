@@ -54,3 +54,17 @@ def create_dataset(features: np.array, labels: np.array, batch_size=2, epochs=10
     dataset = dataset.repeat(epochs)
     dataset = dataset.batch(batch_size, drop_remainder=True)
     return dataset
+
+
+def recover_timedelta_to_timestamp(time_seq):
+    csum = []
+    curr = 0
+
+    for dt in time_seq:
+        if dt != 0:
+            curr += dt
+            csum.append(curr)
+        else:
+            csum.append(0)
+
+    return csum

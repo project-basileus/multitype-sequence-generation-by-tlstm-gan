@@ -12,7 +12,8 @@ from sgtlstm.TimeLSTM import TimeLSTM0, TimeLSTM1, TimeLSTM2, TimeLSTM3
 tf.keras.backend.set_floatx('float64')
 
 
-def generate_one_sequence_by_rollout(generator, T, event_vocab_dim, end_token=0, init_token=1, max_time=1024, verbose=False):
+def generate_one_sequence_by_rollout(generator, T, event_vocab_dim, end_token=0, init_token=1, max_time=1024,
+                                     verbose=False):
     # Begin from dummy init state (init_token=1, init_timestamp=0.0)
     curr_state_et = np.zeros([T])
     curr_state_et[0] = init_token
@@ -40,6 +41,7 @@ def generate_one_sequence_by_rollout(generator, T, event_vocab_dim, end_token=0,
 
         # sample next event token and time stamp
         assert token_prob.shape == [1, event_vocab_dim]
+
         sampled_et = tf.random.categorical(tf.math.log(token_prob), num_samples=1)
         sampled_ts = tf.clip_by_value(gm.sample(), clip_value_min=1, clip_value_max=max_time)  # shape=[BATCH_SIZE,]
 
@@ -157,4 +159,3 @@ def train_discriminator(features_batch, generator, discriminator, T, event_vocab
     optimizer.apply_gradients(zip(grads, discriminator.trainable_variables))
 
     return ce_loss, gaussian_loss
-
