@@ -64,7 +64,7 @@ def build_D(T, event_vocab_dim, emb_dim, hidden_dim=11, k_mixt=7):
     return discriminator
 
 
-def build_G(T, event_vocab_dim, emb_dim, hidden_dim=11, k_mixt=7, return_sequence=False):
+def build_G(batch_size, T, event_vocab_dim, emb_dim, hidden_dim=11, k_mixt=7, return_sequence=False):
     """
         Build a generator for event type sequence of shape (batch_size, T, input_dim)
         and input event type sequence of shape (batch_size, T, 1)
@@ -77,22 +77,23 @@ def build_G(T, event_vocab_dim, emb_dim, hidden_dim=11, k_mixt=7, return_sequenc
     :return:
     """
     # Time-LSTM:
-    i_et = Input(shape=(T, 1), name='event_type')  # input of discrete feature event type
-    i_ts = Input(shape=(T, 1), name='time_delta')  # input of continuous feature timestamp
+    i_et = Input(batch_shape=(batch_size, None, 1), name='event_type')  # input of discrete feature event type
+    i_ts = Input(batch_shape=(batch_size, None, 1), name='time_delta')  # input of continuous feature timestamp
 
-    mask_layer = tf.keras.layers.Masking(mask_value=0., input_shape=(T, 1))
+    mask_layer = tf.keras.layers.Masking(mask_value=0., input_shape=(None, 1))
     masked_ts = mask_layer(i_ts)
 
-    embed0 = Embedding(input_dim=event_vocab_dim, output_dim=emb_dim, input_length=T, mask_zero=True)(i_et)
-    embed0 = Reshape((T, emb_dim))(embed0)
+    embed0 = Embedding(input_dim=event_vocab_dim, output_dim=emb_dim, mask_zero=True)(i_et)
+    embed0 = Reshape([1, emb_dim])(embed0)
     merged0 = tf.keras.layers.concatenate([embed0, masked_ts], axis=2)
 
     # TODO: add deep layers to lstm
     # TODO: add activation after layer norm/batch norm
-    merged0 = tf.keras.layers.LayerNormalization()(merged0)
-    merged0 = tf.keras.layers.PReLU()(merged0)
+#     merged0 = tf.keras.layers.LayerNormalization()(merged0)
+#     merged0 = tf.keras.layers.PReLU()(merged0)
 
-    hm, tm = TimeLSTM1(hidden_dim, activation='selu', name='time_lstm', return_sequences=False)(merged0)
+    hm, tm = TimeLSTM1(hidden_dim, activation='selu', name='time_lstm',
+                       stateful=True, return_sequences=False)(merged0)
 
     # gaussian mixture for time delta
     alpha = Dense(k_mixt, activation=tf.nn.softmax, name='dense_alpha')(tm)
@@ -101,25 +102,12 @@ def build_G(T, event_vocab_dim, emb_dim, hidden_dim=11, k_mixt=7, return_sequenc
 
     # add regularization to sigma to avoid GM collapse
     sigma = tf.clip_by_value(sigma, clip_value_min=1.0, clip_value_max=1024)
-    # tf.print(sigma)
-    print('sigma > 1 !!')
-
-    gm = tfd.MixtureSameFamily(
-        mixture_distribution=tfd.Categorical(
-            probs=alpha),
-        components_distribution=tfd.Normal(
-            loc=mu,
-            scale=sigma))
-
-    # mask out zeros in time stamps
-    mask = tf.not_equal(i_ts, 0)
-    gaussian_log = gm.log_prob(masked_ts)  # apply gaussian mixture to time stamp input
 
     # predicted prob of next token
     token_prob = Dense(event_vocab_dim, activation='softmax', name='token_prob')(hm)
 
     model_gen = Model(
         inputs=[i_et, i_ts],
-        outputs=[token_prob, gaussian_log, mask, alpha, mu, sigma])
+        outputs=[token_prob,alpha, mu, sigma])
 
     return model_gen

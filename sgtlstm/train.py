@@ -12,6 +12,48 @@ from sgtlstm.TimeLSTM import TimeLSTM0, TimeLSTM1, TimeLSTM2, TimeLSTM3
 tf.keras.backend.set_floatx('float64')
 
 
+def generate_batch_sequence_by_rollout(
+        G, batch_size, T, end_token=0, init_token=1, max_time=1024, verbose=False):
+
+    # Begin from dummy init state (init_token=1, init_timestamp=0.0)
+    curr_state_et = np.zeros([batch_size, 1, 1])
+    curr_state_et[:, 0, 0] = init_token
+
+    curr_state_ts = np.zeros([batch_size, 1, 1])
+    curr_state_ts[:, 0, 0] = 0.0
+
+    all_state_et = curr_state_et
+    all_state_ts = curr_state_ts
+
+    G.reset_states()
+
+    for step in range(1, T):  # sequence length
+        token_prob, alpha, mu, sigma = G([curr_state_et, curr_state_ts])
+        sampled_et = tf.random.categorical(tf.math.log(token_prob), num_samples=1, dtype=tf.int32)
+        sampled_et = tf.reshape(sampled_et, [batch_size, 1, 1])
+
+        # stop genererating once hit end_token
+        cond_end_token = tf.equal(curr_state_et, end_token)
+        curr_state_et = tf.where(cond_end_token, curr_state_et, sampled_et)
+        all_state_et = tf.concat([all_state_et, curr_state_et], axis=1)
+
+        # generate one timstamp using [alpha, mu, sigma]
+        gm = tfd.MixtureSameFamily(
+            mixture_distribution=tfd.Categorical(
+                probs=alpha),
+            components_distribution=tfd.Normal(
+                loc=mu,
+                scale=sigma))
+
+        sampled_ts = tf.clip_by_value(gm.sample(), clip_value_min=1, clip_value_max=max_time)
+        sampled_ts = tf.reshape(sampled_ts, [batch_size, 1, 1])
+
+        # stop genererating once hit end_token
+        curr_state_ts = tf.where(cond_end_token, curr_state_ts, sampled_ts)
+        all_state_ts = tf.concat([all_state_ts, curr_state_ts], axis=1)
+    return all_state_et, all_state_ts
+
+
 def generate_one_sequence_by_rollout(generator, T, event_vocab_dim, end_token=0, init_token=1, max_time=1024, verbose=False):
     # Begin from dummy init state (init_token=1, init_timestamp=0.0)
     curr_state_et = np.zeros([T])
