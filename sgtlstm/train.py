@@ -13,8 +13,7 @@ tf.keras.backend.set_floatx('float64')
 
 
 def generate_batch_sequence_by_rollout(
-        G, batch_size, T, end_token=0, init_token=1, max_time=1024, verbose=False):
-
+        G, batch_size, T, end_token=0, init_token=1.0, max_time=1024, verbose=False):
     # Begin from dummy init state (init_token=1, init_timestamp=0.0)
     curr_state_et = np.zeros([batch_size, 1, 1])
     curr_state_et[:, 0, 0] = init_token
@@ -27,111 +26,111 @@ def generate_batch_sequence_by_rollout(
 
     G.reset_states()
 
-    for step in range(1, T):  # sequence length
-        token_prob, alpha, mu, sigma = G([curr_state_et, curr_state_ts])
+    for step in range(1, 21):  # sequence length
+
+        print(step)
+
+        token_prob, time_out = G([curr_state_et, curr_state_ts])
+
         sampled_et = tf.random.categorical(tf.math.log(token_prob), num_samples=1, dtype=tf.int32)
-        sampled_et = tf.reshape(sampled_et, [batch_size, 1, 1])
+        sampled_et = tf.reshape(sampled_et, [batch_size, 1, 1]).numpy().astype(float)
 
         # stop genererating once hit end_token
         cond_end_token = tf.equal(curr_state_et, end_token)
         curr_state_et = tf.where(cond_end_token, curr_state_et, sampled_et)
         all_state_et = tf.concat([all_state_et, curr_state_et], axis=1)
 
-        # generate one timstamp using [alpha, mu, sigma]
-        gm = tfd.MixtureSameFamily(
-            mixture_distribution=tfd.Categorical(
-                probs=alpha),
-            components_distribution=tfd.Normal(
-                loc=mu,
-                scale=sigma))
-
-        sampled_ts = tf.clip_by_value(gm.sample(), clip_value_min=1, clip_value_max=max_time)
-        sampled_ts = tf.reshape(sampled_ts, [batch_size, 1, 1])
+        # generate one timstamp using time_out
+        s = tfd.Sample(tfd.Normal(loc=time_out.mean(), scale=time_out.stddev()), sample_shape=1)
+        sampled_ts = s.sample(1)
+        sampled_ts = tf.clip_by_value(sampled_ts, clip_value_min=1, clip_value_max=max_time)
+        sampled_ts = tf.reshape(sampled_ts, (batch_size, 1, 1))
 
         # stop genererating once hit end_token
         curr_state_ts = tf.where(cond_end_token, curr_state_ts, sampled_ts)
         all_state_ts = tf.concat([all_state_ts, curr_state_ts], axis=1)
+
     return all_state_et, all_state_ts
 
 
-def generate_one_sequence_by_rollout(generator, T, event_vocab_dim, end_token=0, init_token=1, max_time=1024,
-                                     verbose=False):
-    # Begin from dummy init state (init_token=1, init_timestamp=0.0)
-    curr_state_et = np.zeros([T])
-    curr_state_et[0] = init_token
-    curr_state_et = curr_state_et.reshape((1, T, 1))
-
-    curr_state_ts = np.zeros([T])
-    curr_state_ts[0] = 0.0
-    curr_state_ts = curr_state_ts.reshape((1, T, 1))
-
-    # whole trajectory
-    states_et = (curr_state_et)
-    states_ts = (curr_state_ts)
-    episode_token_probs = tf.constant([1., ], dtype=tf.float64)
-
-    for step in range(1, T):  # sequence length
-        token_prob, gaussian_log, mask, alpha, mu, sigma = generator([curr_state_et, curr_state_ts])
-
-        # generate one timstamp using [alpha, mu, sigma]
-        gm = tfd.MixtureSameFamily(
-            mixture_distribution=tfd.Categorical(
-                probs=alpha),
-            components_distribution=tfd.Normal(
-                loc=mu,
-                scale=sigma))
-
-        # sample next event token and time stamp
-        assert token_prob.shape == [1, event_vocab_dim]
-
-        sampled_et = tf.random.categorical(tf.math.log(token_prob), num_samples=1)
-        sampled_ts = tf.clip_by_value(gm.sample(), clip_value_min=1, clip_value_max=max_time)  # shape=[BATCH_SIZE,]
-
-        taken_action_idx = sampled_et.numpy().item()
-
-        if taken_action_idx == end_token:
-            if verbose:
-                print('Generation ended early!')
-            break  # episode is over
-
-        taken_action_prob = token_prob[0][taken_action_idx]
-        taken_action_prob = tf.reshape(taken_action_prob, [1, ])
-        episode_token_probs = tf.concat([episode_token_probs, taken_action_prob], axis=0)
-
-        new_state_et = np.copy(curr_state_et)
-        new_state_ts = np.copy(curr_state_ts)
-
-        # TODO: 0 means 1 generation per batch
-        new_state_et[0, step, :] = sampled_et
-        new_state_ts[0, step, :] = sampled_ts
-
-        if verbose:
-            print('new_state_et', tf.squeeze(new_state_et))
-
-        states_et = np.concatenate((states_et, new_state_et))
-        states_ts = np.concatenate((states_ts, new_state_ts))
-
-        curr_state_et = new_state_et
-        curr_state_ts = new_state_ts
-        if verbose:
-            print('Generation done!')
-
-    if verbose:
-        print('episode length={}'.format(step + 1))
-        print('state_et =', states_et)
-        print('state_ts =', states_ts)
-        print('episode_token_probs =', episode_token_probs)
-        print('gaussian_log =', gaussian_log)
-
-    return states_et, states_ts, episode_token_probs, gaussian_log
+# def generate_one_sequence_by_rollout(generator, T, event_vocab_dim, end_token=0, init_token=1, max_time=1024,
+#                                      verbose=False):
+#     # Begin from dummy init state (init_token=1, init_timestamp=0.0)
+#     curr_state_et = np.zeros([T])
+#     curr_state_et[0] = init_token
+#     curr_state_et = curr_state_et.reshape((1, T, 1))
+#
+#     curr_state_ts = np.zeros([T])
+#     curr_state_ts[0] = 0.0
+#     curr_state_ts = curr_state_ts.reshape((1, T, 1))
+#
+#     # whole trajectory
+#     states_et = (curr_state_et)
+#     states_ts = (curr_state_ts)
+#     episode_token_probs = tf.constant([1., ], dtype=tf.float64)
+#
+#     for step in range(1, T):  # sequence length
+#         token_prob, gaussian_log, mask, alpha, mu, sigma = generator([curr_state_et, curr_state_ts])
+#
+#         # generate one timstamp using [alpha, mu, sigma]
+#         gm = tfd.MixtureSameFamily(
+#             mixture_distribution=tfd.Categorical(
+#                 probs=alpha),
+#             components_distribution=tfd.Normal(
+#                 loc=mu,
+#                 scale=sigma))
+#
+#         # sample next event token and time stamp
+#         assert token_prob.shape == [1, event_vocab_dim]
+#
+#         sampled_et = tf.random.categorical(tf.math.log(token_prob), num_samples=1)
+#         sampled_ts = tf.clip_by_value(gm.sample(), clip_value_min=1, clip_value_max=max_time)  # shape=[BATCH_SIZE,]
+#
+#         taken_action_idx = sampled_et.numpy().item()
+#
+#         if taken_action_idx == end_token:
+#             if verbose:
+#                 print('Generation ended early!')
+#             break  # episode is over
+#
+#         taken_action_prob = token_prob[0][taken_action_idx]
+#         taken_action_prob = tf.reshape(taken_action_prob, [1, ])
+#         episode_token_probs = tf.concat([episode_token_probs, taken_action_prob], axis=0)
+#
+#         new_state_et = np.copy(curr_state_et)
+#         new_state_ts = np.copy(curr_state_ts)
+#
+#         # TODO: 0 means 1 generation per batch
+#         new_state_et[0, step, :] = sampled_et
+#         new_state_ts[0, step, :] = sampled_ts
+#
+#         if verbose:
+#             print('new_state_et', tf.squeeze(new_state_et))
+#
+#         states_et = np.concatenate((states_et, new_state_et))
+#         states_ts = np.concatenate((states_ts, new_state_ts))
+#
+#         curr_state_et = new_state_et
+#         curr_state_ts = new_state_ts
+#         if verbose:
+#             print('Generation done!')
+#
+#     if verbose:
+#         print('episode length={}'.format(step + 1))
+#         print('state_et =', states_et)
+#         print('state_ts =', states_ts)
+#         print('episode_token_probs =', episode_token_probs)
+#         print('gaussian_log =', gaussian_log)
+#
+#     return states_et, states_ts, episode_token_probs, gaussian_log
 
 
 def train_generator(generator, discriminator, T, event_vocab_dim, verbose=False, weight_gaussian_loss=1,
                     optimizer=Adam(lr=0.001)):
     with tf.GradientTape() as tape:
-        states_et, states_ts, episode_token_probs, gaussian_log = generate_one_sequence_by_rollout(generator,
-                                                                                                   T, event_vocab_dim,
-                                                                                                   verbose=verbose)
+        states_et, states_ts = generate_batch_sequence_by_rollout(generator,
+                                                                  T, event_vocab_dim,
+                                                                  verbose=verbose)
         actual_length = episode_token_probs.shape[0]
 
         gaussian_log = gaussian_log[0, 0:actual_length, 0]
