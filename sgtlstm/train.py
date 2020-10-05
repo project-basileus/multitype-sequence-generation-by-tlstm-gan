@@ -29,14 +29,12 @@ def generate_batch_sequence_by_rollout(
 
     G.reset_states()
 
-    for step in range(1, 21):  # sequence length
+    for step in range(1, T):  # sequence length
         token_prob, time_out = G([curr_state_et, curr_state_ts])
 
         sampled_et = tf.random.categorical(tf.math.log(token_prob), num_samples=1, dtype=tf.int32)
         sampled_et = tf.reshape(sampled_et, [batch_size, 1, 1]).numpy().astype(float)
 
-        # TODO: The token prob is still considering tokens generated after the end token
-        # TODO: Same for gaussian log in batch, otherwise it has masking per samples in a batch.
         # get the chosen token probability per batch for each step
         sampled_et_indices = sampled_et.squeeze().astype(int).tolist()
         sampled_token_prob = token_prob.numpy()[np.arange(len(token_prob)), sampled_et_indices].reshape((batch_size, 1))
@@ -48,12 +46,12 @@ def generate_batch_sequence_by_rollout(
         all_state_et = tf.concat([all_state_et, curr_state_et], axis=1)
 
         # generate one timstamp using time_out
-        s = tfd.Sample(tfd.Normal(loc=time_out.mean(), scale=time_out.stddev()), sample_shape=1)
-        sampled_ts_raw = tf.reshape(s.sample(1), (batch_size, 1, 1))
-        sampled_ts = tf.clip_by_value(sampled_ts_raw, clip_value_min=1, clip_value_max=max_time)
+        sampled_ts_raw = time_out.sample()
+        sampled_ts = tf.clip_by_value(tf.reshape(sampled_ts_raw, (batch_size, 1, 1))
+                                      , clip_value_min=1, clip_value_max=max_time)
 
         # get the gaussian log likelihood for the sampled timestamps
-        sampled_gaussian_log = time_out.log_prob(sampled_ts_raw.numpy().reshape(batch_size, 1))
+        sampled_gaussian_log = time_out.log_prob(sampled_ts_raw)
         gaussian_log = tf.concat([gaussian_log, sampled_gaussian_log], axis=1)
 
         # stop genererating once hit end_token
@@ -139,8 +137,8 @@ def train_generator(generator, discriminator, T, event_vocab_dim, verbose=False,
                     optimizer=Adam(lr=0.001)):
     with tf.GradientTape() as tape:
         states_et, states_ts, episode_token_probs, gaussian_log = generate_batch_sequence_by_rollout(generator,
-                                                                  T, event_vocab_dim,
-                                                                  verbose=verbose)
+                                                                                                     T, event_vocab_dim,
+                                                                                                     verbose=verbose)
 
         # TODO: Does actual length need to be specified for each sample in batch?
         actual_length = episode_token_probs.shape[0]
