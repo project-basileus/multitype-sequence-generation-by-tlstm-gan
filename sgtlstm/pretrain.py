@@ -83,19 +83,16 @@ def pretrain_generator(feature_sample, generator, verbose=False, weight_gaussian
         generator.reset_states()
         ce_loss_list = []
         gaussian_list = []
-        for i in range(0, T):
+        for i in range(0, T-1):
             curr_state_et = state_et_batch[:, i:i + 1, :]
             curr_state_ts = state_ts_batch[:, i:i + 1, :]
             target_et = state_et_batch[:, i + 1, :]
             target_ts = state_ts_batch[:, i + 1, :]
 
-            token_prob, alpha, mu, sigma = generator([curr_state_et, curr_state_ts])
+            token_prob, time_out = generator([curr_state_et, curr_state_ts])
 
-            gm = tfd.MixtureSameFamily(mixture_distribution=tfd.Categorical(probs=alpha),
-                                       components_distribution=tfd.Normal(loc=mu, scale=sigma))
-
-            gaussian_log = gm.log_prob(tf.squeeze(target_ts))
-            gaussian_loss = -tf.reduce_mean(gaussian_log)
+            gaussian_log = time_out.log_prob(target_ts)
+            gaussian_loss = -tf.reduce_mean(gaussian_log)  # one step across the whole batch
             gaussian_list.append(gaussian_loss)
 
             ce_losses = tf.keras.losses.sparse_categorical_crossentropy(target_et, token_prob)
