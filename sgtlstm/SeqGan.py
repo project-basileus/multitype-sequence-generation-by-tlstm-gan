@@ -64,16 +64,14 @@ def build_D(T, event_vocab_dim, emb_dim, hidden_dim=11, k_mixt=7):
     return discriminator
 
 
-def build_G(batch_size, event_vocab_dim, emb_dim, hidden_dim=11, k_mixt=7, return_sequence=False):
+def build_G(batch_size, event_vocab_dim, emb_dim, hidden_dim=11):
     """
         Build a generator for event type sequence of shape (batch_size, T, input_dim)
         and input event type sequence of shape (batch_size, T, 1)
-    :param T: length of the sequence
+    :param batch_size: batch size must been specified at generator
     :param event_vocab_dim: size of event vocabulary ['na', 'start', 'click', 'install']
     :param emb_dim: dimension of the embedding layer output for event type
     :param hidden_dim: dimension hidden of the time lstm cell
-    :param k_mixt: num of gaussian distributions in gaussian mixture model
-    :param return_sequence:
     :return:
     """
     # Time-LSTM:
