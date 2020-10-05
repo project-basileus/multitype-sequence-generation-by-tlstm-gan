@@ -34,7 +34,7 @@ def build_D(T, event_vocab_dim, emb_dim, hidden_dim=11):
 
     hm, tm = TimeLSTM1(hidden_dim, activation='selu', name='time_lstm', return_sequences=False)(merged0)
 
-    time_comb = tf.layers.concat([hm, tm], axis=0)
+    time_comb = tf.keras.layers.concatenate([hm, tm], axis=0)
 
     # predicted real prob
     real_prob = Dense(1, activation='sigmoid', name='fraud_prob')(time_comb)
@@ -70,15 +70,15 @@ def build_G(batch_size, event_vocab_dim, emb_dim, hidden_dim=11):
 
     hm, tm = TimeLSTM1(hidden_dim, activation='selu', name='time_lstm',
                        stateful=True, return_sequences=False)(merged0)
-    time_comb = tf.concat([hm, tm], axis=1)
-    time_out = Dense(1 + 1, activation='linear', name='output')(time_comb)
+    # time_comb = tf.keras.layers.concatenate([hm, tm], axis=1)
+    time_out = Dense(1 + 1, activation='linear', name='output')(tm)
     time_out = tfp.layers.DistributionLambda(
         lambda t: tfd.Normal(loc=t[..., :1],
                              scale=tf.math.softplus(t[..., 1:])),
         name='Normal')(time_out)
 
     # predicted prob of next token
-    token_prob = Dense(event_vocab_dim, activation='softmax', name='token_prob')(time_comb)
+    token_prob = Dense(event_vocab_dim, activation='softmax', name='token_prob')(hm)
     generator = Model(
         inputs=[i_et, i_ts],
         outputs=[token_prob, time_out])
