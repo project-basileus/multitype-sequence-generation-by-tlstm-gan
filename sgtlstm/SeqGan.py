@@ -27,8 +27,9 @@ def build_D(T, event_vocab_dim, emb_dim, hidden_dim=11, k_mixt=7):
     i_ts = Input(shape=(T, 1), name='time_delta')  # input of continuous feature timestamp
     mask_layer = tf.keras.layers.Masking(mask_value=0., input_shape=(T, 1))
     masked_ts = mask_layer(i_ts)
+    masked_et = mask_layer(i_et)
 
-    embed0 = Embedding(input_dim=event_vocab_dim, output_dim=emb_dim, input_length=T, mask_zero=True)(i_et)
+    embed0 = Embedding(input_dim=event_vocab_dim, output_dim=emb_dim, input_length=T, mask_zero=True)(masked_et)
     embed0 = Reshape((T, emb_dim))(embed0)  # shape=[Batch_size, T, emb_dim]
     merged0 = tf.keras.layers.concatenate([embed0, masked_ts], axis=2)  # # shape=[Batch_size, T, emb_dim + time_dim]
 
@@ -37,29 +38,19 @@ def build_D(T, event_vocab_dim, emb_dim, hidden_dim=11, k_mixt=7):
 
     hm, tm = TimeLSTM1(hidden_dim, activation='selu', name='time_lstm', return_sequences=False)(merged0)
 
-    # gaussian mixture for time delta
-    alpha = Dense(k_mixt, activation=tf.nn.softmax, name='dense_alpha')(tm)
-    mu = Dense(k_mixt, activation=None, name='dense_mu')(tm)
-    sigma = Dense(k_mixt, activation=tf.nn.softplus, name='dense_sigma')(tm)
-
-    gm = tfd.MixtureSameFamily(
-        mixture_distribution=tfd.Categorical(
-            probs=alpha),
-        components_distribution=tfd.Normal(
-            loc=mu,
-            scale=sigma))
-
-    gaussian_log = gm.log_prob(masked_ts)  # apply gaussian mixture to time stamp input
-
-    # mask out zeros in time stamps
-    mask = tf.not_equal(i_ts, 0)
+    time_comb = tf.layers.concat([hm, tm], axis=0)
+    time_out = Dense(1 + 1, activation='linear', name='output')(time_comb)
+    time_out = tfp.layers.DistributionLambda(
+        lambda t: tfd.Normal(loc=t[..., :1],
+                             scale=tf.math.softplus(t[..., 1:])),
+        name='Normal')(time_out)
 
     # predicted real prob
     real_prob = Dense(1, activation='sigmoid', name='fraud_prob')(hm)
 
     discriminator = Model(
         inputs=[i_et, i_ts],
-        outputs=[real_prob, gaussian_log, mask])
+        outputs=[real_prob])
 
     return discriminator
 
