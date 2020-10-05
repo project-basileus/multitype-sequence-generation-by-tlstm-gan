@@ -97,12 +97,9 @@ def pretrain_generator(feature_sample, G, verbose=False, weight_gaussian_loss=1,
             target_et = state_et_batch[:, i + 1, :]
             target_ts = state_ts_batch[:, i + 1, :]
 
-            token_prob, alpha, mu, sigma = G([curr_state_et, curr_state_ts])
+            token_prob, time_out = G([curr_state_et, curr_state_ts])
 
-            gm = tfd.MixtureSameFamily(mixture_distribution=tfd.Categorical(probs=alpha),
-                                       components_distribution=tfd.Normal(loc=mu, scale=sigma))
-
-            gaussian_log = gm.log_prob(tf.squeeze(target_ts))
+            gaussian_log = time_out.log_pro(target_ts)
             gaussian_loss = -tf.reduce_mean(gaussian_log)
             gaussian_list.append(gaussian_loss)
 
