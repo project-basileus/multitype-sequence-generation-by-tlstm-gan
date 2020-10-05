@@ -83,3 +83,39 @@ def build_G(batch_size, event_vocab_dim, emb_dim, hidden_dim=11):
         inputs=[i_et, i_ts],
         outputs=[token_prob, time_out])
     return generator
+
+
+def build_critic(batch_size, event_vocab_dim, emb_dim, hidden_dim=11):
+    """
+        Build a critic network for event type sequence of shape (batch_size, T, input_dim)
+        and input event type sequence of shape (batch_size, T, 1)
+    :param batch_size: size of batch
+    :param event_vocab_dim: size of event vocabulary ['na', 'start', 'click', 'install']
+    :param emb_dim: dimension of the embedding layer output for event type
+    :param hidden_dim: dimension hidden of the time lstm cell
+    :return: model_critic
+    """
+    # Time-LSTM:
+    i_et = Input(batch_shape=(batch_size, None, 1), name='event_type')  # input of discrete feature event type
+    i_ts = Input(batch_shape=(batch_size, None, 1), name='time_delta')  # input of continuous feature timestamp
+
+    mask_layer = tf.keras.layers.Masking(mask_value=0., input_shape=(None, 1))
+    masked_et = mask_layer(i_et)
+    masked_ts = mask_layer(i_ts)
+    embed0 = Embedding(input_dim=event_vocab_dim, output_dim=emb_dim, mask_zero=True)(masked_et)
+    embed0 = Reshape([1, emb_dim])(embed0)
+    merged0 = tf.keras.layers.concatenate([embed0, masked_ts], axis=2)
+
+    hm, tm = TimeLSTM1(hidden_dim, activation='selu', name='time_lstm',
+                       stateful=True, return_sequences=False)(merged0)
+    time_comb = tf.concat([hm, tm], axis=1)
+
+    # critic value for future rewards
+    critic_value = Dense(1, activation='relu', name='critic_value')(time_comb)
+
+    model_critic = Model(
+        inputs=[i_et, i_ts],
+        outputs=[critic_value]
+    )
+
+    return model_critic
