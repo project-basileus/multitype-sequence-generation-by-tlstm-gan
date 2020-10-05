@@ -11,15 +11,14 @@ from sgtlstm.TimeLSTM import TimeLSTM0, TimeLSTM1, TimeLSTM2, TimeLSTM3
 tf.keras.backend.set_floatx('float64')
 
 
-def build_D(T, event_vocab_dim, emb_dim, hidden_dim=11, k_mixt=7):
+def build_D(T, event_vocab_dim, emb_dim, hidden_dim=11):
     """
         Build a discriminator for event type sequence of shape (batch_size, T, input_dim)
         and input event type sequence of shape (batch_size, T, 1)
     :param T: length of the sequence
-    :param event_vocab_dim: size of event vocabulary ['na', 'start', 'click', 'install']
+    :param event_vocab_dim: size of event vocabulary ['na', 'init', 'start', 'view', 'click', 'install']
     :param emb_dim: dimension of the embedding layer output for event type
     :param hidden_dim: dimension hidden of the time lstm cell
-    :param k_mixt: num of gaussian distributions in gaussian mixture model
     :return: discriminator D
     """
     # Time-LSTM:
@@ -32,9 +31,6 @@ def build_D(T, event_vocab_dim, emb_dim, hidden_dim=11, k_mixt=7):
     embed0 = Embedding(input_dim=event_vocab_dim, output_dim=emb_dim, input_length=T, mask_zero=True)(masked_et)
     embed0 = Reshape((T, emb_dim))(embed0)  # shape=[Batch_size, T, emb_dim]
     merged0 = tf.keras.layers.concatenate([embed0, masked_ts], axis=2)  # # shape=[Batch_size, T, emb_dim + time_dim]
-
-    # merged0 = tf.keras.layers.LayerNormalization()(merged0)
-    # merged0 = tf.keras.layers.PReLU()(merged0)
 
     hm, tm = TimeLSTM1(hidden_dim, activation='selu', name='time_lstm', return_sequences=False)(merged0)
 
@@ -72,11 +68,6 @@ def build_G(batch_size, event_vocab_dim, emb_dim, hidden_dim=11):
     embed0 = Reshape([1, emb_dim])(embed0)
     merged0 = tf.keras.layers.concatenate([embed0, masked_ts], axis=2)
 
-    # TODO: add deep layers to lstm
-    # TODO: add activation after layer norm/batch norm
-    #     merged0 = tf.keras.layers.LayerNormalization()(merged0)
-    #     merged0 = tf.keras.layers.PReLU()(merged0)
-
     hm, tm = TimeLSTM1(hidden_dim, activation='selu', name='time_lstm',
                        stateful=True, return_sequences=False)(merged0)
     time_comb = tf.concat([hm, tm], axis=1)
@@ -88,7 +79,7 @@ def build_G(batch_size, event_vocab_dim, emb_dim, hidden_dim=11):
 
     # predicted prob of next token
     token_prob = Dense(event_vocab_dim, activation='softmax', name='token_prob')(time_comb)
-    model_gen = Model(
+    generator = Model(
         inputs=[i_et, i_ts],
         outputs=[token_prob, time_out])
-    return model_gen
+    return generator
