@@ -34,7 +34,7 @@ def build_D(T, event_vocab_dim, emb_dim, hidden_dim=11):
 
     hm, tm = TimeLSTM1(hidden_dim, activation='selu', name='time_lstm', return_sequences=False)(merged0)
 
-    time_comb = tf.keras.layers.concatenate([hm, tm], axis=0)
+    time_comb = tf.keras.layers.concatenate([hm, tm], axis=1)
 
     # predicted real prob
     real_prob = Dense(1, activation='sigmoid', name='fraud_prob')(time_comb)
