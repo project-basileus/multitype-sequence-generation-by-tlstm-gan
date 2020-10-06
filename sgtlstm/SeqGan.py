@@ -74,7 +74,7 @@ def build_G(batch_size, event_vocab_dim, emb_dim, hidden_dim=11):
     time_out = Dense(1 + 1, activation='linear', name='output')(tm)
     time_out = tfp.layers.DistributionLambda(
         lambda t: tfd.Normal(loc=t[..., :1],
-                             scale=tf.math.softplus(t[..., 1:])),
+                             scale=1 + tf.math.softplus(t[..., 1:])),
         name='Normal')(time_out)
 
     # predicted prob of next token
