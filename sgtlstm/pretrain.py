@@ -50,57 +50,42 @@ def pretrain_discriminator(features_batch, real_labels, discriminator, verbose=F
         real_et, real_ts = features_batch
 
         # train discriminator
-        true_prob, gaussian_log, mask = discriminator((real_et, real_ts))
-
-        # calculate masked neg-likelihood of gaussian mixture
-        gaussian_log = gaussian_log[:, :, 0:1]
-        gaussian_log = tf.boolean_mask(gaussian_log, mask)
-        gaussian_loss = -tf.reduce_sum(gaussian_log)
+        true_prob = discriminator((real_et, real_ts))
 
         # cross-entropy loss
         ce_loss = tf.reduce_mean(
             tf.keras.losses.binary_crossentropy(real_labels, true_prob, from_logits=False))
-        discriminator_loss = gaussian_loss * weight_gaussian_loss + ce_loss
+        discriminator_loss = ce_loss
 
         if verbose:
-            print('discriminator token loss:{}'.format(ce_loss))
-            print('discriminator gaussian loss:{}'.format(gaussian_loss))
             print('total discriminator loss:{}'.format(discriminator_loss))
 
     grads = tape.gradient(discriminator_loss, discriminator.trainable_variables)
     optimizer.apply_gradients(zip(grads, discriminator.trainable_variables))
 
-    return ce_loss, gaussian_loss
+    return ce_loss
 
 
-def pretrain_generator(feature_sample, G, verbose=False, weight_gaussian_loss=1,
+def pretrain_generator(feature_sample, generator, verbose=False, weight_gaussian_loss=1,
                        optimizer=Adam(lr=0.001)):
-    # self_regression_et, self_regression_ts, self_target_token, _ = create_self_regression_data_batch(feature_sample)
-    # self_target_timestamp is not actually needed here,
-    # because we cauculate log-likelihood of gaussian mixture fitting original input timestamps
-    # rather than comparing the next actual timestamp with a sampled timestamp from the updated gm distribution
-    # N_reg = self_regression_et.shape[0]
-
     state_et_batch, state_ts_batch = feature_sample
-
-    ce_loss_list = []
-    gaussian_loss_list = []
+    _, T, _ = state_et_batch.shape
 
     # train the generator
     with tf.GradientTape() as tape:
-        G.reset_states()
+        generator.reset_states()
         ce_loss_list = []
         gaussian_list = []
-        for i in range(0, 10):
+        for i in range(0, T-1):
             curr_state_et = state_et_batch[:, i:i + 1, :]
             curr_state_ts = state_ts_batch[:, i:i + 1, :]
             target_et = state_et_batch[:, i + 1, :]
             target_ts = state_ts_batch[:, i + 1, :]
 
-            token_prob, time_out = G([curr_state_et, curr_state_ts])
+            token_prob, time_out = generator([curr_state_et, curr_state_ts])
 
-            gaussian_log = time_out.log_pro(target_ts)
-            gaussian_loss = -tf.reduce_mean(gaussian_log)
+            gaussian_log = time_out.log_prob(target_ts)
+            gaussian_loss = -tf.reduce_mean(gaussian_log)  # one step across the whole batch
             gaussian_list.append(gaussian_loss)
 
             ce_losses = tf.keras.losses.sparse_categorical_crossentropy(target_et, token_prob)
@@ -109,11 +94,13 @@ def pretrain_generator(feature_sample, G, verbose=False, weight_gaussian_loss=1,
 
         total_ce_loss = tf.reduce_sum(ce_loss_list)
         total_gaussian_loss = tf.reduce_sum(gaussian_list)
-        total_loss = total_ce_loss + total_gaussian_loss
+        total_loss = total_ce_loss + weight_gaussian_loss * total_gaussian_loss
 
-    # print('batch:{}, ce_loss:{}, gaussian_loss:{}'.format(batch_idx, total_ce_loss, total_gaussian_loss))
+    if verbose:
+        print('ce_loss:{}, gaussian_loss:{}'.format(total_ce_loss, total_gaussian_loss))
+
     # apply gradient decent per batch
-    grads = tape.gradient(total_loss, G.trainable_variables)
-    optimizer.apply_gradients(zip(grads, G.trainable_variables))
+    grads = tape.gradient(total_loss, generator.trainable_variables)
+    optimizer.apply_gradients(zip(grads, generator.trainable_variables))
 
     return total_ce_loss, total_gaussian_loss
