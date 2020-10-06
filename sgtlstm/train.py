@@ -61,6 +61,50 @@ def generate_batch_sequence_by_rollout(
     return all_state_et, all_state_ts, episode_token_probs, gaussian_log
 
 
+def generate_sequences(N_gen, generator, batch_size, T, recover_to_timestamp=True):
+    """
+        Generate sequences batch per batch
+    :param N_gen: total number of seqs to be generated
+    :param generator:
+    :param batch_size:
+    :param T:
+    :param recover_to_timestamp: whether to recover time deltas to absolute timestamps
+    :return: a python list of shape [N_gen, T, 2]
+    """
+    all_type_seq = None
+    all_time_seq = None
+    N = 0
+
+    while N < N_gen:
+        batch_state_et, batch_state_ts, _, _ = generate_batch_sequence_by_rollout(generator, batch_size, T,
+                                                                                  end_token=0, init_token=1.0,
+                                                                                  max_time=1024, verbose=False)
+
+        batch_type_seq = batch_state_et.numpy()
+        batch_time_seq = batch_state_ts.numpy()
+
+        # recover time delta to time stamps
+        if recover_to_timestamp:
+            batch_time_seq = np.cumsum(batch_time_seq, axis=1)
+
+        if all_type_seq is None:
+            all_type_seq = batch_type_seq
+        else:
+            all_type_seq = np.concatenate([all_type_seq, batch_type_seq], axis=0)
+
+        if all_time_seq is None:
+            all_time_seq = batch_time_seq
+        else:
+            all_time_seq = np.concatenate([all_time_seq, batch_time_seq], axis=0)
+
+        N += batch_size
+
+    # concat type and time in depth
+    concated_seq_list = np.concatenate([all_type_seq, all_time_seq], axis=2).tolist()
+
+    return concated_seq_list[:N_gen]
+
+
 def train_generator(generator, discriminator, critic_network, batch_size, T, verbose=False,
                     weight_gaussian_loss=1,
                     optimizer=Adam(lr=0.001)):
