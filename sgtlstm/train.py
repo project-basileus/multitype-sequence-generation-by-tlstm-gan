@@ -51,11 +51,11 @@ def generate_batch_sequence_by_rollout(
                                       , clip_value_min=1, clip_value_max=max_time)
 
         # get the gaussian log likelihood for the sampled timestamps
-        sampled_gaussian_log = time_out.log_prob(sampled_ts_raw)
+        sampled_gaussian_log = time_out.log_prob(tf.reshape(sampled_ts, (batch_size, 1)))
         gaussian_log = tf.concat([gaussian_log, sampled_gaussian_log], axis=1)
 
-        # stop generating once hitting end_token
-        curr_state_ts = tf.where(cond_end_token, curr_state_ts, sampled_ts)
+        # stop generating once hit end_token
+        curr_state_ts = tf.where(cond_end_token, curr_state_et, sampled_ts)
         all_state_ts = tf.concat([all_state_ts, curr_state_ts], axis=1)
 
     return all_state_et, all_state_ts, episode_token_probs, gaussian_log
@@ -135,7 +135,7 @@ def train_generator(generator, discriminator, critic_network, batch_size, T, ver
             curr_gaussian_log = gaussian_log[:, i:i + 1]
 
             q_value = critic_network([curr_state_et, curr_state_ts])
-            diff = true_return - q_value
+            advantage = true_return - q_value
 
             # At this point in history, the critic estimated that we would get a
             # total reward = `q_value` in the future. We took an action with log probability
@@ -149,22 +149,31 @@ def train_generator(generator, discriminator, critic_network, batch_size, T, ver
             curr_token_prob = tf.boolean_mask(curr_token_prob, mask)
             curr_gaussian_log = tf.boolean_mask(curr_gaussian_log, mask)
 
-            diff = tf.boolean_mask(diff, mask)
+            masked_q_value = tf.boolean_mask(q_value, mask)
+            masked_advantage = tf.boolean_mask(advantage, mask)
+            masked_true_return = tf.boolean_mask(true_return, mask)
 
-            ce_loss_list.append(-tf.reduce_mean(tf.math.log(curr_token_prob) * diff))
-            gaussian_list.append(-tf.reduce_mean(curr_gaussian_log * diff))
-            critic_loss_list.append(tf.keras.losses.MSE(true_return, q_value))
+            ce_loss_list.append(-tf.reduce_mean(tf.math.log(curr_token_prob) * masked_advantage))
+            gaussian_list.append(-tf.reduce_mean(curr_gaussian_log * masked_advantage))
+
+            ce_loss_list.append(-tf.reduce_mean(tf.math.log(curr_token_prob)))
+            gaussian_list.append(-tf.reduce_mean(curr_gaussian_log))
+
+            critic_loss_list.append(tf.reduce_mean(tf.keras.losses.MSE(masked_true_return, masked_q_value)))
 
         total_ce_loss = tf.reduce_sum(ce_loss_list)
         total_gaussian_loss = tf.reduce_sum(gaussian_list)
-
-        total_generator_loss = total_ce_loss + weight_gaussian_loss * total_gaussian_loss
         total_critic_loss = tf.reduce_sum(critic_loss_list)
+        total_generator_loss = total_ce_loss + weight_gaussian_loss * total_gaussian_loss
+
+        average_true_return = tf.reduce_mean(true_return)
 
         if verbose:
             print('generator token loss:{}'.format(total_ce_loss))
             print('generator gaussian loss:{}'.format(total_gaussian_loss))
+            print('generator total loss:{}'.format(total_generator_loss))
             print('generator critic loss:{}'.format(total_critic_loss))
+            print('average true_return: {}'.format(average_true_return))
 
     # update generator
     generator_grads = tape.gradient(total_generator_loss, generator.trainable_variables)
@@ -177,7 +186,7 @@ def train_generator(generator, discriminator, critic_network, batch_size, T, ver
     # explicitly drop tape because persistent=True
     del tape
 
-    return total_ce_loss, total_gaussian_loss, total_critic_loss
+    return total_ce_loss, total_gaussian_loss, total_critic_loss, average_true_return
 
 
 def train_discriminator(features_batch, generator, discriminator, batch_size, T, verbose=False,
@@ -201,11 +210,11 @@ def train_discriminator(features_batch, generator, discriminator, batch_size, T,
         total_labels = tf.concat([generated_labels, real_labels], axis=0)
 
         # train discriminator
-        true_prob = discriminator((total_et, total_ts))
+        pred_prob = discriminator((total_et, total_ts))
 
         # cross-entropy loss
         ce_loss = tf.reduce_mean(
-            tf.keras.losses.binary_crossentropy(total_labels, true_prob, from_logits=False))
+            tf.keras.losses.binary_crossentropy(total_labels, pred_prob, from_logits=False))
         discriminator_loss = ce_loss
 
         if verbose:
