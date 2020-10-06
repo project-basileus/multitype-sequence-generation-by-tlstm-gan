@@ -111,7 +111,7 @@ def build_critic(batch_size, event_vocab_dim, emb_dim, hidden_dim=11):
     time_comb = tf.concat([hm, tm], axis=1)
 
     # critic value for future rewards
-    critic_value = Dense(1, activation='relu', name='critic_value')(time_comb)
+    critic_value = Dense(1, activation='sigmoid', name='critic_value')(time_comb)
 
     model_critic = Model(
         inputs=[i_et, i_ts],
