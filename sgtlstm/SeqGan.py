@@ -5,6 +5,7 @@ from tensorflow.keras.optimizers import Adam, SGD
 from tensorflow.keras.layers import Input, LSTM, Embedding, Reshape, Dense
 import tensorflow_probability as tfp
 from tensorflow_probability import distributions as tfd
+from tensorflow.keras import regularizers
 
 from sgtlstm.TimeLSTM import TimeLSTM0, TimeLSTM1, TimeLSTM2, TimeLSTM3
 
@@ -37,7 +38,8 @@ def build_D(T, event_vocab_dim, emb_dim, hidden_dim=11):
     time_comb = tf.keras.layers.concatenate([hm, tm], axis=1)
 
     # predicted real prob
-    real_prob = Dense(1, activation='sigmoid', name='fraud_prob')(time_comb)
+    real_prob = Dense(1, activation='sigmoid', name='fraud_prob', regularizers=regularizers.l1_l2(l1=1e-3, l2=1e-3))(
+        time_comb)
 
     discriminator = Model(
         inputs=[i_et, i_ts],

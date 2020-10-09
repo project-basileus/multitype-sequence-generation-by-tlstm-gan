@@ -15,11 +15,8 @@ tf.keras.backend.set_floatx('float64')
 def generate_batch_sequence_by_rollout(
         G, batch_size, T, end_token=0, init_token=1.0, max_time=1024, verbose=False):
     # Begin from dummy init state (init_token=1, init_timestamp=0.0)
-    curr_state_et = np.zeros([batch_size, 1, 1])
-    curr_state_et[:, 0, 0] = init_token
-
-    curr_state_ts = np.zeros([batch_size, 1, 1])
-    curr_state_ts[:, 0, 0] = 0.0
+    curr_state_et = tf.ones([batch_size, 1, 1], dtype=tf.float64)
+    curr_state_ts = tf.zeros([batch_size, 1, 1], dtype=tf.float64)
 
     all_state_et = curr_state_et
     all_state_ts = curr_state_ts
@@ -33,12 +30,18 @@ def generate_batch_sequence_by_rollout(
         token_prob, time_out = G([curr_state_et, curr_state_ts])
 
         sampled_et = tf.random.categorical(tf.math.log(token_prob), num_samples=1, dtype=tf.int32)
-        sampled_et = tf.reshape(sampled_et, [batch_size, 1, 1]).numpy().astype(float)
+        sampled_et = tf.reshape(sampled_et, [batch_size, 1, 1])
 
         # get the chosen token probability per batch for each step
-        sampled_et_indices = sampled_et.squeeze().astype(int).tolist()
-        sampled_token_prob = token_prob.numpy()[np.arange(len(token_prob)), sampled_et_indices].reshape((batch_size, 1))
+        batch_sample_et = tf.reshape(sampled_et, (batch_size, 1))
+        batch_ind = tf.reshape(tf.range(0, batch_size), (batch_size, 1))
+        batch_sample_et_2d = tf.concat([batch_ind, batch_sample_et], axis=1)
+
+        sampled_token_prob = tf.reshape(tf.gather_nd(token_prob, batch_sample_et_2d), (batch_size, 1))
         episode_token_probs = tf.concat([episode_token_probs, sampled_token_prob], axis=1)
+
+        # cast sampled_et into float
+        sampled_et = tf.cast(sampled_et, dtype=tf.float64)
 
         # stop genererating once hit end_token
         cond_end_token = tf.equal(curr_state_et, end_token)
@@ -51,7 +54,7 @@ def generate_batch_sequence_by_rollout(
                                       , clip_value_min=1, clip_value_max=max_time)
 
         # get the gaussian log likelihood for the sampled timestamps
-        sampled_gaussian_log = time_out.log_prob(tf.reshape(sampled_ts, (batch_size, 1)))
+        sampled_gaussian_log = time_out.log_prob(sampled_ts_raw)
         gaussian_log = tf.concat([gaussian_log, sampled_gaussian_log], axis=1)
 
         # stop generating once hit end_token

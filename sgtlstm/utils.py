@@ -68,3 +68,26 @@ def recover_timedelta_to_timestamp(time_seq):
             csum.append(0)
 
     return csum
+
+
+def load_sequence_from_pickle_to_numpy(pickle_file_path):
+    """
+        A list of sequence in format of (event_type, delta_time)
+    :param pickle_file_path: e.g. /.../project-basileus/seq-gan/data/fixed_length/valid_sequences.pickle
+    :return: (event_type_seqs, delta_time)
+    """
+    with open(pickle_file_path, 'rb') as f:
+        raw_seqs = pickle.load(f)
+
+    if not raw_seqs or not raw_seqs[0]:
+        return np.array([]), np.array([])
+
+    N = len(raw_seqs)
+    T = len(raw_seqs[0])
+
+    seqs = np.array(raw_seqs)
+    #     print(seqs.shape)
+
+    et_seqs = seqs[:, :, 0].astype(np.float64).reshape((N, T, 1))
+    ts_seqs = seqs[:, :, 1].astype(np.float64).reshape((N, T, 1))
+    return et_seqs, ts_seqs
