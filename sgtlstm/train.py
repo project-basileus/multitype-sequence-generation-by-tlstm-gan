@@ -1,13 +1,8 @@
 import numpy as np
 import tensorflow as tf
-from tensorflow.keras.models import Model
-from tensorflow.keras import Sequential
 from tensorflow.keras.optimizers import Adam, SGD
-from tensorflow.keras.layers import Input, LSTM, Embedding, Reshape, Dense
 import tensorflow_probability as tfp
 from tensorflow_probability import distributions as tfd
-
-from sgtlstm.TimeLSTM import TimeLSTM0, TimeLSTM1, TimeLSTM2, TimeLSTM3
 
 tf.keras.backend.set_floatx('float64')
 
@@ -127,7 +122,9 @@ def train_generator(generator, discriminator, critic_network, batch_size, T, ver
 
         # run disc on whole sequence
         # true_return is the total reward for generating this seq
-        true_return = discriminator((states_et, states_ts))
+        true_return, _ = discriminator((states_et, states_ts))
+
+        ZERO_PENALTY = 1
 
         for i in range(0, T):
             # TODO: should we include the init token in loss?
@@ -146,27 +143,31 @@ def train_generator(generator, discriminator, critic_network, batch_size, T, ver
             # The actor must be updated so that it predicts an action that leads to
             # high rewards (compared to critic's estimate) with high probability.
 
-            mask = tf.squeeze(curr_state_et)
-            curr_state_et = tf.boolean_mask(curr_state_et, mask)
-            curr_state_ts = tf.boolean_mask(curr_state_ts, mask)
-            curr_token_prob = tf.boolean_mask(curr_token_prob, mask)
-            curr_gaussian_log = tf.boolean_mask(curr_gaussian_log, mask)
+            #             mask = tf.squeeze(curr_state_et)
+            #             curr_state_et = tf.boolean_mask(curr_state_et, mask)
+            #             curr_state_ts = tf.boolean_mask(curr_state_ts, mask)
+            #             curr_token_prob = tf.boolean_mask(curr_token_prob, mask)
+            #             curr_gaussian_log = tf.boolean_mask(curr_gaussian_log, mask)
 
-            masked_q_value = tf.boolean_mask(q_value, mask)
-            masked_advantage = tf.boolean_mask(advantage, mask)
-            masked_true_return = tf.boolean_mask(true_return, mask)
+            if curr_state_et.shape[0] == 0:
+                ce_loss_list.append(ZERO_PENALTY)
+                continue
 
-            ce_loss_list.append(-tf.reduce_mean(tf.math.log(curr_token_prob) * masked_advantage))
-            gaussian_list.append(-tf.reduce_mean(curr_gaussian_log * masked_advantage))
+            #             masked_q_value = tf.boolean_mask(q_value, mask)
+            #             masked_advantage = tf.boolean_mask(advantage, mask)
+            #             masked_true_return = tf.boolean_mask(true_return, mask)
+
+            ce_loss_list.append(-tf.reduce_mean(tf.math.log(curr_token_prob) * advantage))
+            gaussian_list.append(-tf.reduce_mean(curr_gaussian_log * advantage))
 
             ce_loss_list.append(-tf.reduce_mean(tf.math.log(curr_token_prob)))
             gaussian_list.append(-tf.reduce_mean(curr_gaussian_log))
 
-            critic_loss_list.append(tf.reduce_mean(tf.keras.losses.MSE(masked_true_return, masked_q_value)))
+            critic_loss_list.append(tf.reduce_mean(tf.keras.losses.MSE(true_return, q_value)))
 
-        total_ce_loss = tf.reduce_sum(ce_loss_list)
-        total_gaussian_loss = tf.reduce_sum(gaussian_list)
-        total_critic_loss = tf.reduce_sum(critic_loss_list)
+        total_ce_loss = tf.reduce_mean(ce_loss_list)
+        total_gaussian_loss = tf.reduce_mean(gaussian_list)
+        total_critic_loss = tf.reduce_mean(critic_loss_list)
         total_generator_loss = total_ce_loss + weight_gaussian_loss * total_gaussian_loss
 
         average_true_return = tf.reduce_mean(true_return)
@@ -177,6 +178,7 @@ def train_generator(generator, discriminator, critic_network, batch_size, T, ver
             print('generator total loss:{}'.format(total_generator_loss))
             print('generator critic loss:{}'.format(total_critic_loss))
             print('average true_return: {}'.format(average_true_return))
+            print('-----------------------')
 
     # update generator
     generator_grads = tape.gradient(total_generator_loss, generator.trainable_variables)
@@ -197,7 +199,10 @@ def train_discriminator(features_batch, generator, discriminator, batch_size, T,
     # train the discriminator
     with tf.GradientTape() as tape:
         real_et, real_ts = features_batch
-        real_labels = tf.ones((batch_size, 1))  # (batch_size, 1)
+        # (batch_size, 1)
+        real_labels = tf.ones((batch_size, 1)) + tfd.Normal(loc=0, scale=0.1, name='normal_disturbance_true').sample(
+            sample_shape=(batch_size, 1))
+        #         real_labels = tf.clip_by_value(real_labels, clip_value_min=0.0, clip_value_max=1.0)
 
         generated_et, generated_ts, episode_token_probs, gaussian_log = generate_batch_sequence_by_rollout(generator,
                                                                                                            batch_size,
@@ -206,14 +211,18 @@ def train_discriminator(features_batch, generator, discriminator, batch_size, T,
                                                                                                            init_token=1.0,
                                                                                                            max_time=1024,
                                                                                                            verbose=False)
-        generated_labels = tf.zeros((batch_size, 1))
+
+        generated_labels = tf.zeros((batch_size, 1)) + tfd.Normal(loc=0, scale=0.1,
+                                                                  name='normal_disturbance_fake').sample(
+            sample_shape=(batch_size, 1))
+        #         generated_labels = tf.clip_by_value(generated_labels, clip_value_min=0.0, clip_value_max=1.0)
 
         total_et = tf.concat([generated_et, real_et], axis=0)
         total_ts = tf.concat([generated_ts, real_ts], axis=0)
         total_labels = tf.concat([generated_labels, real_labels], axis=0)
 
         # train discriminator
-        pred_prob = discriminator((total_et, total_ts))
+        pred_prob, _ = discriminator((total_et, total_ts))
 
         # cross-entropy loss
         ce_loss = tf.reduce_mean(
@@ -222,6 +231,7 @@ def train_discriminator(features_batch, generator, discriminator, batch_size, T,
 
         if verbose:
             print('total discriminator loss:{}'.format(discriminator_loss))
+            print('-----------------------')
 
     grads = tape.gradient(discriminator_loss, discriminator.trainable_variables)
     optimizer.apply_gradients(zip(grads, discriminator.trainable_variables))
